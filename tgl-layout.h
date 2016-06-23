@@ -37,6 +37,8 @@
 #define TGLMF_EMPTY (1 << 12)
 #define TGLMF_SERVICE (1 << 13)
 #define TGLMF_SESSION_OUTBOUND (1 << 14)
+#define TGLMF_POST_AS_CHANNEL (1 << 8)
+#define TGLMF_HTML (1 << 9)
 
 #define TGLMF_CREATE 0x10000
 
@@ -44,6 +46,7 @@
 #define TGLPF_CREATE (1 << 16)
 #define TGLPF_HAS_PHOTO (1 << 11)
 #define TGLPF_DELETED (1 << 10)
+#define TGLPF_OFFICIAL (1 << 13)
 
 #define TGLUF_CONTACT 1
 #define TGLUF_MUTUAL_CONTACT 2
@@ -64,14 +67,26 @@
 #define TGLECF_HAS_PHOTO TGLPF_HAS_PHOTO
 #define TGLECF_DELETED TGLPF_DELETED
 
+#define TGLCHF_CREATED TGLPF_CREATED
+#define TGLCHF_CREATE TGLPF_CREATE
+#define TGLCHF_HAS_PHOTO TGLPF_HAS_PHOTO
+#define TGLCHF_OFFICIAL TGLPF_OFFICIAL
+
+#define TGLCHF_DIFF 0x80000000
+
 #define TGL_FLAGS_UNCHANGED 0xffff
 
 #define TGLDCF_AUTHORIZED 1
 #define TGLDCF_LOGGED_IN 8
 
+#define TGL_PERMANENT_ID_SIZE 24
 #pragma pack(push,4)
 
-typedef struct { int type; int id; } tgl_peer_id_t;
+typedef struct { 
+  int peer_type; 
+  int peer_id; 
+  long long access_hash;
+} tgl_peer_id_t;
 
 enum tgl_dc_state {
   st_init,
@@ -91,7 +106,7 @@ enum tgl_dc_state {
 struct tgl_session {
   struct tgl_dc *dc;
   long long session_id;
-  long long last_msg_id;
+  long long last_msg_id; // See tglmp_encrypt_send_message
   int seq_no;
   int received_messages;
   struct connection *c;
@@ -131,6 +146,27 @@ struct tgl_dc {
 
   // ipv4, ipv6, ipv4_media, ipv6_media
   struct tgl_dc_option *options[4];
+};
+
+enum tgl_message_entity_type {
+tgl_message_entity_unknown,
+tgl_message_entity_mention,
+tgl_message_entity_hashtag,
+tgl_message_entity_bot_command,
+tgl_message_entity_url,
+tgl_message_entity_email,
+tgl_message_entity_bold,
+tgl_message_entity_italic,
+tgl_message_entity_code,
+tgl_message_entity_pre,
+tgl_message_entity_text_url
+};
+
+struct tgl_message_entity {
+  enum tgl_message_entity_type type;
+  int start;
+  int length;
+  char *extra;
 };
 
 enum tgl_message_media_type {
@@ -173,7 +209,8 @@ enum tgl_message_action_type {
   tgl_message_action_commit_key,
   tgl_message_action_abort_key,
   tgl_message_action_request_key,
-  tgl_message_action_accept_key
+  tgl_message_action_accept_key,
+  tgl_message_action_channel_create
 };
 
 enum tgl_typing_status {
@@ -215,10 +252,10 @@ struct tgl_photo {
   long long id;
   long long access_hash;
   int refcnt;
-  int user_id;
+  //int user_id;
   int date;
   char *caption;
-  struct tgl_geo geo;
+  //struct tgl_geo geo;
   int sizes_num;
   struct tgl_photo_size *sizes;
 };
@@ -267,6 +304,7 @@ struct tgl_user {
   int flags;
   struct tgl_message *last;
   char *print_name;
+  char *username;
   int structure_version;
   struct tgl_file_location photo_big;
   struct tgl_file_location photo_small;
@@ -282,9 +320,34 @@ struct tgl_user {
   int blocked;
   char *real_first_name;
   char *real_last_name;
-  char *username;
 
   struct tgl_bot_info *bot_info;
+};
+
+struct tgl_channel {
+  tgl_peer_id_t id;
+  int flags;
+  struct tgl_message *last;
+  char *print_title;
+  char *username;
+  int structure_version;
+  struct tgl_file_location photo_big;
+  struct tgl_file_location photo_small;
+  int last_read_in;
+  int last_read_out;
+  long long photo_id;
+  struct tgl_photo *photo;
+
+  long long access_hash;
+  int date;
+  char *title;
+  int version;
+  char *about;
+  int participants_count;
+  int admins_count;
+  int kicked_count;
+
+  int pts;
 };
 
 struct tgl_chat_user {
@@ -298,6 +361,7 @@ struct tgl_chat {
   int flags;
   struct tgl_message *last;
   char *print_title;
+  char *username;
   int structure_version;
   struct tgl_file_location photo_big;
   struct tgl_file_location photo_small;
@@ -336,6 +400,7 @@ struct tgl_secret_chat {
   int flags;
   struct tgl_message *last;
   char *print_name;
+  char *username;
   int structure_version;
   struct tgl_file_location photo_big;
   struct tgl_file_location photo_small;
@@ -368,6 +433,7 @@ typedef union tgl_peer {
     int flags;
     struct tgl_message *last;
     char *print_name;
+    char *username;
     int structure_version;
     struct tgl_file_location photo_big;
     struct tgl_file_location photo_small;
@@ -375,40 +441,15 @@ typedef union tgl_peer {
   };
   struct tgl_user user;
   struct tgl_chat chat;
+  struct tgl_channel channel;
   struct tgl_secret_chat encr_chat;
 } tgl_peer_t;
-/*
-struct tgl_video {
-  long long id;
-  long long access_hash;
-  int user_id;
-  int date;
-  int size;
-  int dc_id;
-  struct tgl_photo_size thumb;
-  char *caption;
-  int duration;
-  int w;
-  int h;
-  char *mime_type;
-};
-
-struct tgl_audio {
-  long long id;
-  long long access_hash;
-  int user_id;
-  int date;
-  int size;
-  int dc_id;
-  int duration;
-  char *mime_type;
-};*/
 
 struct tgl_document {
   long long id;
   long long access_hash;
   int refcnt;
-  int user_id;
+  //int user_id;
   int date;
   int size;
   int dc_id;
@@ -514,10 +555,20 @@ struct tgl_message_reply_markup {
   char **buttons;
 };
 
+typedef struct tgl_message_id {
+  unsigned peer_type;
+  unsigned peer_id;
+  long long id;
+  long long access_hash;
+} tgl_message_id_t;
+
 struct tgl_message {
   struct tgl_message *next_use, *prev_use;
   struct tgl_message *next, *prev;
-  long long id;
+  int temp_id;
+  long long server_id;
+  long long random_id;
+  struct tgl_message_id permanent_id;
   int flags;
   tgl_peer_id_t fwd_from_id;
   int fwd_date;
@@ -526,6 +577,8 @@ struct tgl_message {
   tgl_peer_id_t to_id;
   int date;
   struct tgl_message_reply_markup *reply_markup;
+  int entities_num;
+  struct tgl_message_entity *entities;
   union {
     struct tgl_message_action action;
     struct {
