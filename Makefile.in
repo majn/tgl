@@ -4,7 +4,7 @@ CFLAGS=@CFLAGS@
 LDFLAGS=@LDFLAGS@ @OPENSSL_LDFLAGS@
 CPPFLAGS=@CPPFLAGS@ @OPENSSL_INCLUDES@
 DEFS=@DEFS@
-COMPILE_FLAGS=${CFLAGS} ${CPFLAGS} ${CPPFLAGS} ${DEFS} -Wall -Wextra -Werror -Wno-deprecated-declarations -fno-strict-aliasing -fno-omit-frame-pointer -ggdb -Wno-unused-parameter -fPIC -fstack-protector-strong -D_FORTIFY_SOURCE=2
+COMPILE_FLAGS=${CFLAGS} ${CPFLAGS} ${CPPFLAGS} ${DEFS} -Wall -Wextra -Werror -Wno-deprecated-declarations -fno-strict-aliasing -fno-omit-frame-pointer -ggdb -Wno-unused-parameter -fPIC -D_FORTIFY_SOURCE=2
 
 EXTRA_LIBS=@LIBS@ @EXTRA_LIBS@ @OPENSSL_LIBS@
 LOCAL_LDFLAGS=-rdynamic -ggdb ${EXTRA_LIBS}
@@ -31,6 +31,13 @@ DEPENDENCE_LIST=${DEPENDENCE}
 
 INCLUDE=-I. -I${srcdir}
 CC=@CC@
+
+ifeq "$(CC)" "gcc"
+GCCVERGEQ5 := $(shell expr `$(CC) -dumpversion | cut -f1 -d.` \>= 5)
+ifeq "$(GCCVERGEQ5)" "1"
+	COMPILE_FLAGS += -fstack-protector-strong
+endif
+endif
 
 .SUFFIXES:
 
