@@ -3255,7 +3255,7 @@ static void load_next_part (struct tgl_state *TLS, struct download *D, void *cal
       l = tsnprintf (buf, sizeof (buf), "%s/download_%" INT64_PRINTF_MODIFIER "d_%d.jpg", TLS->downloads_directory, D->volume, D->local_id);
     } else {
       if (D->ext) {
-	l = tsnprintf (buf, sizeof (buf), "%s/%s" , TLS->downloads_directory, D->name);
+        l = tsnprintf (buf, sizeof (buf), "%s/download_%" INT64_PRINTF_MODIFIER "d.%s", TLS->downloads_directory, D->id, D->ext);
       } else {
         l = tsnprintf (buf, sizeof (buf), "%s/download_%" INT64_PRINTF_MODIFIER "d", TLS->downloads_directory, D->id);
       }
