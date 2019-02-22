@@ -1109,8 +1109,9 @@ void tglf_fetch_message_action (struct tgl_state *TLS, struct tgl_message_action
     M->title = DS_STR_DUP (DS_MA->title);
     break;
   default:
-    assert (0);
-  }
+    vlogprintf (E_WARNING, "Unknown MessageAction code: magic = 0x%08x\n", DS_MA->magic);
+    M->type = tgl_message_action_noop;
+    break;  }
 }
 
 struct tgl_message *tglf_fetch_alloc_message_short (struct tgl_state *TLS, struct tl_ds_updates *DS_U) {
