@@ -10,6 +10,10 @@ EXTRA_LIBS=@LIBS@ @EXTRA_LIBS@ @OPENSSL_LIBS@
 LOCAL_LDFLAGS=-rdynamic -ggdb ${EXTRA_LIBS}
 LINK_FLAGS=${LDFLAGS} ${LOCAL_LDFLAGS}
 
+#Cross compile
+CROSS_COMPILE_BUILD=@CROSS_COMPILE_BUILD@
+PREFIX_BUILD=@PREFIX_BUILD@
+
 DEP=dep
 AUTO=auto
 OBJ=objs
@@ -37,6 +41,20 @@ AR=@AR@
 SPUNSUPPORTED = $(shell $(CC) -fstack-protector-strong 2>&1 | grep -c 'stack-protector-strong')
 ifeq "$(SPUNSUPPORTED)" "0"
 	COMPILE_FLAGS += -fstack-protector-strong
+endif
+
+#TGL_GENERATE=${OBJ}/generate.native.o ${OBJ}/tools.native.o ${OBJ}/crypto/rand_openssl.native.o ${OBJ}/crypto/rand_altern.native.o ${OBJ}/crypto/err_openssl.native.o ${OBJ}/crypto/err_altern.native.o
+TGL_GENERATE=$(subst .o,.native.o,$(GENERATE_OBJECTS)) $(subst .o,.native.o,$(COMMON_OBJECTS))
+
+ifdef CROSS_COMPILE_BUILD
+	CC_BUILD = $(CROSS_COMPILE_BUILD)-gcc
+# 	Replace with build machine paths
+	COMPILE_FLAGS_BUILD := $(subst $(PREFIX_BUILD),/usr/local,$(COMPILE_FLAGS))
+	LINK_FLAGS_BUILD := $(subst $(PREFIX_BUILD),/usr/local,$(LINK_FLAGS))
+else
+	CC_BUILD = $(CC)
+	COMPILE_FLAGS_BUILD = ${COMPILE_FLAGS}
+	LINK_FLAGS_BUILD = $(LINK_FLAGS)
 endif
 
 .SUFFIXES:
@@ -69,8 +87,11 @@ ${LIB}/libtgl.a: ${TGL_OBJECTS} ${COMMON_OBJECTS} ${TGL_OBJECTS_AUTO}
 ${LIB}/libtgl.so: ${TGL_OBJECTS} ${COMMON_OBJECTS} ${TGL_OBJECTS_AUTO}
 	${CC} -shared -o $@ $^ ${LINK_FLAGS}
 
-${EXE}/generate: ${GENERATE_OBJECTS} ${COMMON_OBJECTS}
-	${CC} ${GENERATE_OBJECTS} ${COMMON_OBJECTS} ${LINK_FLAGS} -o $@
+${TGL_GENERATE}: ${OBJ}/%.native.o: ${srcdir}/%.c | create_dirs
+	${CC_BUILD} ${INCLUDE} ${COMPILE_FLAGS_BUILD} -c -MP -MD -MF ${DEP}/$*.native.d -MQ ${OBJ}/$*.native.o -o $@ $<
+	
+${EXE}/generate: ${TGL_GENERATE}
+	${CC_BUILD} ${TGL_GENERATE} ${LINK_FLAGS_BUILD} -o $@
 
 ${AUTO}/scheme.tlo: ${AUTO}/scheme.tl ${EXE}/tl-parser
 	${EXE}/tl-parser -e $@ ${AUTO}/scheme.tl

@@ -10,9 +10,21 @@ m4_include([m4_ax_check_zlib.m4])
 AC_PROG_CC
 AC_CHECK_TOOL(AR, ar, [AC_MSG_ERROR([No ar found.  Huh?])])
 
+#TODO do it better...
+PREFIX_BUILD=${prefix}
+CROSS_COMPILE_BUILD=${build}
+
+if [[ "x$cross_compiling" = "xno" ]]; then
+    PREFIX_BUILD="/usr/local"
+fi
+
 # BSD locations for headers and libraries from packages, Linux locations for self-compiled stuff.
-CPPFLAGS="$CPPFLAGS -I/usr/local/include"
-LDFLAGS="$LDFLAGS -L/usr/local/lib"
+CPPFLAGS="$CPPFLAGS -I${PREFIX_BUILD}/include"
+LDFLAGS="$LDFLAGS -L${PREFIX_BUILD}/lib"
+
+#Backup variables
+CPPFLAGS_BUILD=$CPPFLAGS
+LDFLAGS_BUILD=$LDFLAGS
 
 # Checks for libraries.
 AC_SEARCH_LIBS([clock_gettime], [rt])
@@ -39,6 +51,10 @@ AC_ARG_ENABLE(openssl,[  --disable-openssl	  disables OpenSSL, and don't link ag
   ])
 
 AX_CHECK_ZLIB(, [AC_MSG_ERROR([No zlib found])])
+
+#TODO AX_CHECK_ZLIB replace flags. Mustnt do it
+CPPFLAGS=$CPPFLAGS_BUILD
+LDFLAGS=$LDFLAGS_BUILD
 
 AC_ARG_ENABLE(extf,[  --enable-extf		  enables extended queries system],
   [ 
@@ -88,6 +104,8 @@ AC_CHECK_FUNCS([alarm endpwent malloc memset memmove mkdir realloc select socket
 
 AC_SUBST(EXTRA_LIBS)
 AC_SUBST(EXTRA_OBJECTS)
+AC_SUBST(CROSS_COMPILE_BUILD)
+AC_SUBST(PREFIX_BUILD)
 AC_CONFIG_FILES([Makefile])
 AC_OUTPUT
 

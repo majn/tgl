@@ -1,7 +1,18 @@
 TL_PARSER_OBJECTS=${OBJ}/tl-parser.o ${OBJ}/tlc.o
 
+ifdef CROSS_COMPILE_BUILD
+	CC_BUILD = $(CROSS_COMPILE_BUILD)-gcc
+# 	Replace with build machine paths
+	COMPILE_FLAGS_BUILD := $(subst $(PREFIX_BUILD),/usr/local,$(COMPILE_FLAGS))
+	LINK_FLAGS_BUILD := $(subst $(PREFIX_BUILD),/usr/local,$(LINK_FLAGS))
+else
+	CC_BUILD = $(CC)
+	COMPILE_FLAGS_BUILD = ${COMPILE_FLAGS}
+	LINK_FLAGS_BUILD = $(LINK_FLAGS)
+endif
+
 ${TL_PARSER_OBJECTS}: ${OBJ}/%.o: ${srcdir}/tl-parser/%.c | create_dirs
-	${CC} ${INCLUDE} ${COMPILE_FLAGS} -iquote ${srcdir}/tl-parser -c -MP -MD -MF ${DEP}/$*.d -MQ ${OBJ}/$*.o -o $@ $<
+	${CC_BUILD} ${INCLUDE} ${COMPILE_FLAGS_BUILD} -iquote ${srcdir}/tl-parser -c -MP -MD -MF ${DEP}/$*.d -MQ ${OBJ}/$*.o -o $@ $<
 
 ${EXE}/tl-parser: ${TL_PARSER_OBJECTS}
-	${CC} $^ ${LINK_FLAGS} -o $@
+	${CC_BUILD} $^ ${LINK_FLAGS_BUILD} -o $@
