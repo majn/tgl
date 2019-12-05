@@ -3128,6 +3128,8 @@ struct download {
   unsigned char *key;	//provided by caller [optional], left alone
   int type;		//request code, if provided by the caller - otherwise autoselected
   int refcnt;
+  char* file_reference;	//allocated by caller [optional], freed on completion. for inputPhotoFileLocation etc
+  char* thumb_size;	//allocated by caller [optional], freed on completion. for inputPhotoFileLocation etc
 };
 
 //Frees temporary fields in the download structure and resets it to caller-provided state
@@ -3154,6 +3156,14 @@ static void download_free(struct download *D) {
   if (D->ext) {
     tfree_str (D->ext);
     D->ext = 0;
+  }
+  if (D->file_reference) {
+    tfree_str (D->file_reference);
+    D->file_reference = 0;
+  }
+  if (D->thumb_size) {
+    tfree_str (D->thumb_size);
+    D->thumb_size = 0;
   }
   tfree (D, sizeof (*D));
 }
@@ -3352,6 +3362,11 @@ static void download_next_part (struct tgl_state *TLS, struct download *D, void 
     }
     out_long (D->id);
     out_long (D->access_hash);
+    //Used by inputPhotoFileLocation:
+    if (D->file_reference)
+        out_string(D->file_reference); //I'm not sure but let's say it's a string for now
+    if (D->thumb_size)
+        out_string(D->thumb_size); //Definitely a string
   }
   out_int (D->offset);
   out_int (D->size ? (1 << 14) : (1 << 19));
