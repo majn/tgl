@@ -249,7 +249,7 @@ struct query *tglq_send_query_ex (struct tgl_state *TLS, struct tgl_dc *DC, int 
   TLS->queries_tree = tree_insert_query (TLS->queries_tree, q, rand ());
 
   q->ev = TLS->timer_methods->alloc (TLS, alarm_query_gateway, q);
-  TLS->timer_methods->insert (q->ev, q->methods->timeout ? q->methods->timeout : QUERY_TIMEOUT);  
+  TLS->timer_methods->insert (q->ev, q->methods->timeout ? q->methods->timeout : QUERY_TIMEOUT);
 
   q->extra = extra;
   q->callback = callback;
@@ -320,9 +320,8 @@ int tglq_query_error (struct tgl_state *TLS, long long id) {
     if (!(q->flags & QUERY_ACK_RECEIVED)) {
       TLS->timer_methods->remove (q->ev);
     }
-    TLS->queries_tree = tree_delete_query (TLS->queries_tree, q);
-    int res = 0;
 
+    int res = 0;
     int error_handled = 0;
 
     switch (error_code) {
@@ -388,22 +387,22 @@ int tglq_query_error (struct tgl_state *TLS, long long id) {
     default:
       // anything else. Treated as internal error
       {
-        int wait;
-        if (strncmp (error, "FLOOD_WAIT_", 11)) {
-          if (error_code == 420) {
-            vlogprintf (E_ERROR, "error = '%s'\n", error);
-          }
-          wait = 10;
+      	// Do not auto-resend the same packet, it has already been answered. Retry at a higher level.
+      	// Most errors won't be fixed by endless repeats either.
+        if (strncmp (error, "FLOOD_WAIT_", 11) == 0) {
+        	//wait = atoll (error + 11);
+        } else if (error_code == 420) {
+            vlogprintf (E_ERROR, "non-standard wait = '%s'\n", error);
         } else {
-          wait = atoll (error + 11);
+        	//non-floodwait error
         }
         q->flags &= ~QUERY_ACK_RECEIVED;
-        TLS->timer_methods->insert (q->ev, wait);
         struct tgl_dc *DC = q->DC;
         if (!(DC->flags & 4) && !(q->flags & QUERY_FORCE_SEND)) {
           q->session_id = 0;
         }
-        error_handled = 1;
+        error_handled = 0;
+        res = 0;
       }
       break;
     }
@@ -418,6 +417,7 @@ int tglq_query_error (struct tgl_state *TLS, long long id) {
     }
 
     if (res <= 0) {
+      TLS->queries_tree = tree_delete_query (TLS->queries_tree, q);
       tfree (q->data, q->data_len * 4);
       TLS->timer_methods->free (q->ev);
     }
@@ -3112,7 +3112,7 @@ static void resend_query_cb (struct tgl_state *TLS, void *_q, int success) {
 
 /* {{{ Load photo/video */
 struct download {
-  int offset;
+  int offset;		//chosen automatically based on the partially downloaded file, incremented progressively
   int size;
   long long volume;
   long long secret;
@@ -3120,37 +3120,56 @@ struct download {
   int local_id;
   int dc;
   int next;
-  int fd;
-  char *name;
-  char *ext;
+  int fd;		//opened internally, closed on completion
+  char *name;		//allocated internally, freed on completion
+  char *ext;		//allocated by caller [optional], freed on completion
   long long id;
-  unsigned char *iv;
-  unsigned char *key;
-  int type;
+  unsigned char *iv;	//allocated by caller [optional], freed on completion
+  unsigned char *key;	//provided by caller [optional], left alone
+  int type;		//request code, if provided by the caller - otherwise autoselected
   int refcnt;
 };
 
+//Frees temporary fields in the download structure and resets it to caller-provided state
+static void download_reset(struct download *D) {
+  if (D->fd >= 0) {
+    close (D->fd);
+    D->fd = -1;
+  }
+
+  tfree_str (D->name); //since its auto-selected
+  D->name = 0;
+
+  D->offset = 0; //redetermine offset automatically
+}
+//Frees all fields in the download structure and the structure itself
+static void download_free(struct download *D) {
+  download_reset(D);
+
+  //Additionally, free any parts allocated by the caller
+  if (D->iv) {
+    tfree_secure (D->iv, 32);
+    D->iv = 0;
+  }
+  if (D->ext) {
+    tfree_str (D->ext);
+    D->ext = 0;
+  }
+  tfree (D, sizeof (*D));
+}
 
 static void end_load (struct tgl_state *TLS, struct download *D, void *callback, void *callback_extra) {
   TLS->cur_downloading_bytes -= D->size;
   TLS->cur_downloaded_bytes -= D->size;
 
-  if (D->fd >= 0) {
-    close (D->fd);
-  }
-
   if (callback) {
     ((void (*)(struct tgl_state *, void *, int, char *))callback) (TLS, callback_extra, 1, D->name);
   }
 
-  if (D->iv) {
-    tfree_secure (D->iv, 32);
-  }
-  tfree_str (D->name);
-  tfree (D, sizeof (*D));
+  download_free(D);
 }
 
-static void load_next_part (struct tgl_state *TLS, struct download *D, void *callback, void *callback_extra);
+static void download_next_part (struct tgl_state *TLS, struct download *D, void *callback, void *callback_extra);
 static int download_on_answer (struct tgl_state *TLS, struct query *q, void *DD) {
   struct tl_ds_upload_file *DS_UF = DD;
 
@@ -3198,7 +3217,7 @@ static int download_on_answer (struct tgl_state *TLS, struct query *q, void *DD)
   D->offset += len;
   D->refcnt --;
   if (D->offset < D->size) {
-    load_next_part (TLS, D, q->callback, q->callback_extra);
+    download_next_part (TLS, D, q->callback, q->callback_extra);
     return 0;
   } else {
     if (!D->refcnt) {
@@ -3208,26 +3227,71 @@ static int download_on_answer (struct tgl_state *TLS, struct query *q, void *DD)
   }
 }
 
+struct download_retry_data {
+  struct download *D;
+  struct tgl_timer *ev;
+  void *callback;
+  void *callback_extra;
+};
+
+static void download_retry_alarm(struct tgl_state *TLS, void *arg) {
+  struct download_retry_data *ri = arg;
+  assert (ri);
+  vlogprintf (E_DEBUG, "download_retry_alarm(size=%d, offset=%d, dc=%d, local_id=%d, volume=%" INT64_PRINTF_MODIFIER "d, secret=%" INT64_PRINTF_MODIFIER "d)",
+    ri->D->size, ri->D->offset, ri->D->dc, ri->D->local_id, ri->D->volume, ri->D->secret);
+  
+  //Remove and free our retry timer
+  TLS->timer_methods->remove (ri->ev);
+  TLS->timer_methods->free (ri->ev);
+  
+  //Run
+  download_next_part (TLS, ri->D, ri->callback, ri->callback_extra);
+  
+  //Free redownload_info
+  tfree (ri, sizeof(*ri));
+}
+
 static int download_on_error (struct tgl_state *TLS, struct query *q, int error_code, int error_len, const char *error) {
+  vlogprintf (E_ERROR, "download_on_error(): '%s'\n", error);
   tgl_set_query_error (TLS, EPROTO, "RPC_CALL_FAIL %d: %.*s", error_code, error_len, error);
 
   struct download *D = q->extra;
-  if (D->fd >= 0) {
-    close (D->fd);
+
+  int wait = -1;
+  if (strncmp (error, "FLOOD_WAIT_", 11) == 0) {
+    wait = atoll (error + 11);
+  } else if (error_code == 420) {
+    //non-standard floodwait: no repeat, better not guess
+  } else {
+    //non-floodwait error: no repeat
   }
 
-  if (q->callback) {
+  int redownload = (wait > 0) && (wait <= 10); //can't transparently wait more than just a bit, fail
+
+  //If failing, run callback now while the data is not freed
+  if (!redownload && q->callback) {
+    vlogprintf (E_ERROR, "download_error: admitting failure\n");
     ((void (*)(struct tgl_state *, void *, int, char *))q->callback) (TLS, q->callback_extra, 0, NULL);
   }
 
-  if (D->iv) {
-    tfree_secure (D->iv, 32);
+  D->refcnt--; //download_next_part() completed so deref
+
+  if (redownload) {
+    vlogprintf (E_ERROR, "download_error: scheduling retry\n");
+    download_reset(D);
+    
+    //query q will be destroyed by tglq_query_error when we return so copy everything
+    struct download_retry_data *ri = talloc0 (sizeof (*ri));
+    ri->D = D;
+    ri->callback = q->callback;
+    ri->callback_extra = q->callback_extra;
+    ri->ev = TLS->timer_methods->alloc (TLS, download_retry_alarm, ri);
+    TLS->timer_methods->insert (ri->ev, wait);
   }
-  tfree_str (D->name);
-  if (D->ext) {
-    tfree_str (D->ext);
+  else {
+    //Only do this on no redownload:
+    download_free(D);
   }
-  tfree (D, sizeof (*D));
   return 0;
 }
 
@@ -3238,7 +3302,7 @@ static struct query_methods download_methods = {
   .name = "download part"
 };
 
-static void load_next_part (struct tgl_state *TLS, struct download *D, void *callback, void *callback_extra) {
+static void download_next_part (struct tgl_state *TLS, struct download *D, void *callback, void *callback_extra) {
   if (!D->offset) {
     static char buf[PATH_MAX];
     int l;
@@ -3284,7 +3348,7 @@ static void load_next_part (struct tgl_state *TLS, struct download *D, void *cal
     if (D->iv) {
       out_int (CODE_input_encrypted_file_location);
     } else {
-      out_int (D->type);
+      out_int (D->type); //CODE_* set by the caller
     }
     out_long (D->id);
     out_long (D->access_hash);
@@ -3315,7 +3379,7 @@ void tgl_do_load_photo_size (struct tgl_state *TLS, struct tgl_photo_size *P, vo
   D->secret = P->loc.secret;
   D->name = 0;
   D->fd = -1;
-  load_next_part (TLS, D, callback, callback_extra);
+  download_next_part (TLS, D, callback, callback_extra);
 }
 
 void tgl_do_load_file_location (struct tgl_state *TLS, struct tgl_file_location *P, void (*callback)(struct tgl_state *TLS, void *callback_extra, int success, const char *filename), void *callback_extra) {
@@ -3338,7 +3402,7 @@ void tgl_do_load_file_location (struct tgl_state *TLS, struct tgl_file_location 
   D->secret = P->secret;
   D->name = 0;
   D->fd = -1;
-  load_next_part (TLS, D, callback, callback_extra);
+  download_next_part (TLS, D, callback, callback_extra);
 }
 
 void tgl_do_load_photo (struct tgl_state *TLS, struct tgl_photo *photo, void (*callback)(struct tgl_state *TLS, void *callback_extra, int success, const char *filename), void *callback_extra) {
@@ -3381,7 +3445,7 @@ static void _tgl_do_load_document (struct tgl_state *TLS, struct tgl_document *V
       D->ext = tstrdup (r);
     }
   }
-  load_next_part (TLS, D, callback, callback_extra);
+  download_next_part (TLS, D, callback, callback_extra);
 }
 
 void tgl_do_load_document (struct tgl_state *TLS, struct tgl_document *V, void (*callback)(struct tgl_state *TLS, void *callback_extra, int success, const char *filename), void *callback_extra) {
@@ -3427,7 +3491,7 @@ void tgl_do_load_encr_document (struct tgl_state *TLS, struct tgl_encr_document 
       D->ext = tstrdup (r);
     }
   }
-  load_next_part (TLS, D, callback, callback_extra);
+  download_next_part (TLS, D, callback, callback_extra);
 
   unsigned char md5[16];
   unsigned char str[64];
