@@ -1115,7 +1115,7 @@ static int process_rpc_message (struct tgl_state *TLS, struct connection *c, str
 
   assert (this_server_time >= st - 300 && this_server_time <= st + 30);
   //assert (enc->msg_id > server_last_msg_id && (enc->msg_id & 3) == 1);
-  vlogprintf (E_DEBUG, "received mesage id %016" INT64_PRINTF_MODIFIER "x\n", enc->msg_id);
+  vlogprintf (E_DEBUG, "received message id %016" INT64_PRINTF_MODIFIER "x\n", enc->msg_id);
   //server_last_msg_id = enc->msg_id;
 
   //*(long long *)(longpoll_query + 3) = *(long long *)((char *)(&enc->msg_id) + 0x3c);
