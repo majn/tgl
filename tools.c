@@ -36,7 +36,7 @@
 //#include "interface.h"
 #include "tools.h"
 
-#ifdef __MACH__
+#ifdef __APPLE__
 #include <mach/clock.h>
 #include <mach/mach.h>
 #endif
@@ -298,7 +298,7 @@ void tgl_exists_release (void *ptr, int size) {}
 void tgl_check_release (void) {}
 
 void tgl_my_clock_gettime (int clock_id, struct timespec *T) {
-#ifdef __MACH__
+#ifdef __APPLE__
   // We are ignoring MONOTONIC and hope time doesn't go back too often
   clock_serv_t cclock;
   mach_timespec_t mts;
