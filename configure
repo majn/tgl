@@ -2245,11 +2245,10 @@ ac_config_headers="$ac_config_headers config.h"
 #
 #   If both header file and library are found, shell commands
 #   'action-if-found' is run. If 'action-if-found' is not specified, the
-#   default action appends '-I${ZLIB_HOME}/include' to CPFLAGS, appends
-#   '-L$ZLIB_HOME}/lib' to LDFLAGS, prepends '-lz' to LIBS, and calls
-#   AC_DEFINE(HAVE_LIBZ). You should use autoheader to include a definition
-#   for this symbol in a config.h file. Sample usage in a C/C++ source is as
-#   follows:
+#   default action appends '-I${ZLIB_HOME}/include' to CPFLAGS, prepends '-lz'
+#   to LIBS, and calls AC_DEFINE(HAVE_LIBZ). You should use autoheader to
+#   include a definition for this symbol in a config.h file. Sample usage
+#   in a C/C++ source is as follows:
 #
 #     #ifdef HAVE_LIBZ
 #     #include <zlib.h>
@@ -4072,7 +4071,6 @@ then
   ZLIB_OLD_LDFLAGS=$LDFLAGS
   ZLIB_OLD_CPPFLAGS=$CPPFLAGS
   if test -n "${ZLIB_HOME}"; then
-        LDFLAGS="$LDFLAGS -L${ZLIB_HOME}/lib"
         CPPFLAGS="$CPPFLAGS -I${ZLIB_HOME}/include"
   fi
 
@@ -4145,7 +4143,6 @@ ac_compiler_gnu=$ac_cv_c_compiler_gnu
     #
 
                 CPPFLAGS="$CPPFLAGS -I${ZLIB_HOME}/include"
-                LDFLAGS="$LDFLAGS -L${ZLIB_HOME}/lib"
                 LIBS="-lz $LIBS"
 
 $as_echo "#define HAVE_LIBZ 1" >>confdefs.h
