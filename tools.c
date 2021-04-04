@@ -49,6 +49,8 @@
 #ifdef WIN32
 #include <winsock2.h>
 #include <windows.h>
+#if __MINGW64_VERSION_MAJOR < 8
+/* Starting with MinGW 8.0.0, it already defines this function. */
 int vasprintf(char ** __restrict__ ret,
                       const char * __restrict__ format,
                       va_list ap) {
@@ -66,6 +68,7 @@ int vasprintf(char ** __restrict__ ret,
   (*ret)[len] = '\0';
   return len;
 }
+#endif
 
 int clock_gettime(int ignored, struct timespec *spec)      
 {
